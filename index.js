@@ -66,6 +66,7 @@ const INBOX_SOPORTE_ID = 96191;
 const CARGAS_TEAM_PREFIX = 'girox';
 const CARGAS_DEFAULT_PASSWORD = 'asd123';
 const CARGAS_CBU_ACTIVO = '15948940000542815';
+const CARGAS_PASSWORD_CURRENT = process.env.CARGAS_PASSWORD_CURRENT || 'default';
 
 const openai = new OpenAIApi(new Configuration({ apiKey: OPENAI_API_KEY }));
 
@@ -572,6 +573,37 @@ async function creditUserBalance(username, amount) {
   }
 }
 
+// ================== CAMBIO PASSWORD ==================
+async function changeUserPassword(childId, newPassword) {
+  const ok = await ensureSession();
+  if (!ok) return { success: false, error: 'No hay sesión válida' };
+
+  try {
+    const body = toFormUrlEncoded({
+      action: 'ChangePassword',
+      token: SESSION_TOKEN,
+      password: CARGAS_PASSWORD_CURRENT,
+      newpassword: newPassword,
+      childid: childId
+    });
+
+    const headers2 = {};
+    if (SESSION_COOKIE) headers2['Cookie'] = SESSION_COOKIE;
+
+    const resp = await client.post('', body, { headers: headers2 });
+
+    let data = resp.data;
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data.substring(data.indexOf('{'), data.lastIndexOf('}') + 1)); } catch (e) {}
+    }
+
+    if (data?.success) return { success: true };
+    return { success: false, error: data?.error || 'API Error' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 // ================== CHATWOOT ==================
 async function sendReplyToChatwoot(accountId, conversationId, message) {
   if (!CHATWOOT_ACCESS_TOKEN) return;
@@ -668,7 +700,7 @@ function normalizeNameForUsername(name) {
     .toString()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z]/g, '')
+    .replace(/[^a-zA-Z ]/g, '')
     .toLowerCase()
     .trim();
 }
@@ -678,8 +710,34 @@ function isLikelyName(text) {
   return clean.length >= 3 && clean.length <= 20;
 }
 
+function isGreetingOnly(text) {
+  const m = normalizeIntentText(text);
+  return (
+    m === 'hola' ||
+    m === 'buenas' ||
+    m === 'hola buenas' ||
+    m === 'buen dia' ||
+    m === 'buenos dias' ||
+    m === 'buenas tardes' ||
+    m === 'buenas noches'
+  );
+}
+
+function extractNameCandidate(message, awaitingName) {
+  const raw = (message || '').toString().trim();
+
+  const introMatch = /(me llamo|mi nombre es|soy)\s+([a-zA-ZáéíóúÁÉÍÓÚñÑ ]{3,})/i.exec(raw);
+  if (introMatch?.[2]) return introMatch[2];
+
+  if (awaitingName && !isGreetingOnly(raw) && isLikelyName(raw)) {
+    return raw;
+  }
+
+  return null;
+}
+
 function buildGiroxUsername(rawName) {
-  const base = normalizeNameForUsername(rawName);
+  const base = normalizeNameForUsername(rawName).replace(/\s+/g, '');
   const rand = Math.floor(100 + Math.random() * 900);
   return `${CARGAS_TEAM_PREFIX}${base}${rand}`;
 }
@@ -700,6 +758,31 @@ function isLoadIntent(message) {
 function isInfoIntent(message) {
   const m = normalizeIntentText(message);
   return m.includes('info') || m.includes('informacion') || m.includes('link') || m.includes('pagina') || m.includes('web');
+}
+
+function isPasswordChangeIntent(message) {
+  const m = normalizeIntentText(message);
+  return (
+    m.includes('cambiar contraseña') ||
+    m.includes('cambiar contrasena') ||
+    m.includes('cambiar clave') ||
+    m.includes('resetear contraseña') ||
+    m.includes('resetear clave') ||
+    m.includes('nueva contraseña') ||
+    m.includes('nueva clave')
+  );
+}
+
+function extractNewPassword(message) {
+  const raw = (message || '').toString();
+
+  const match1 = /(?:contrase(?:ñ|n)a|clave|password)\s*(?:nueva|es|:|=)?\s*([A-Za-z0-9._-]{4,})/i.exec(raw);
+  if (match1?.[1]) return match1[1];
+
+  const match2 = /cambiar.*a\s+([A-Za-z0-9._-]{4,})/i.exec(raw);
+  if (match2?.[1]) return match2[1];
+
+  return null;
 }
 
 async function createUser(username) {
@@ -733,7 +816,7 @@ async function createUser(username) {
   }
 }
 
-// ================== INTENTS ==================
+// ================== INTENTS (REEMBOLSOS) ==================
 function isNameQuestion(message) {
   const m = normalizeIntentText(message);
   return (
@@ -918,9 +1001,50 @@ function isWrongUsernameMessage(message) {
 async function processCargas(accountId, conversationId, contactId, contactName, fullMessage) {
   console.log(`📥 [CARGAS] Msg: "${fullMessage}" | Contact: "${contactName}"`);
 
+  const state = userStates.get(conversationId) || {};
+  const cargasState = state.cargas || { awaitingName: false };
+  state.lastActivity = Date.now();
+
+  const saveState = () => {
+    state.cargas = cargasState;
+    userStates.set(conversationId, state);
+  };
+
   let existingUsername = null;
   if (isValidUsername(contactName)) {
     existingUsername = normalizeUsernameValue(contactName);
+  }
+
+  const usernameFromMsg = extractUsername(fullMessage);
+
+  if (isPasswordChangeIntent(fullMessage)) {
+    const newPassword = extractNewPassword(fullMessage);
+    const targetUsername = existingUsername || usernameFromMsg;
+
+    if (!targetUsername) {
+      await sendReplyToChatwoot(accountId, conversationId, 'Para cambiar la contraseña, decime tu usuario.');
+      return;
+    }
+
+    if (!newPassword) {
+      await sendReplyToChatwoot(accountId, conversationId, 'Decime la nueva contraseña que querés.');
+      return;
+    }
+
+    const userInfo = await getUserInfoByName(targetUsername);
+    if (!userInfo) {
+      await sendReplyToChatwoot(accountId, conversationId, 'No encuentro ese usuario. Revisalo y pasamelo bien.');
+      return;
+    }
+
+    const changeRes = await changeUserPassword(userInfo.id, newPassword);
+    if (!changeRes.success) {
+      await sendReplyToChatwoot(accountId, conversationId, 'No pude cambiar la contraseña ahora. Probá en un rato.');
+      return;
+    }
+
+    await sendReplyToChatwoot(accountId, conversationId, `Listo! Tu contraseña quedó cambiada. Nueva contraseña: ${newPassword}`);
+    return;
   }
 
   if (isInfoIntent(fullMessage)) {
@@ -945,8 +1069,10 @@ async function processCargas(accountId, conversationId, contactId, contactName, 
     return;
   }
 
-  if (isLikelyName(fullMessage)) {
-    const newUsername = buildGiroxUsername(fullMessage);
+  const nameCandidate = extractNameCandidate(fullMessage, cargasState.awaitingName);
+
+  if (nameCandidate) {
+    const newUsername = buildGiroxUsername(nameCandidate);
     const createResult = await createUser(newUsername);
 
     if (!createResult.success) {
@@ -956,12 +1082,24 @@ async function processCargas(accountId, conversationId, contactId, contactName, 
 
     await updateChatwootContact(accountId, contactId, newUsername);
 
-    let reply = `Listo! Tu usuario es ${newUsername} y la contraseña es ${CARGAS_DEFAULT_PASSWORD}. Link: ${PLATFORM_URL}. Para cargar, usá este CBU: ${CARGAS_CBU_ACTIVO}`;
+    const reply = `Listo! Tu usuario es ${newUsername} y la contraseña es ${CARGAS_DEFAULT_PASSWORD}. Link: ${PLATFORM_URL}. Para cargar, usá este CBU: ${CARGAS_CBU_ACTIVO}`;
     await sendReplyToChatwoot(accountId, conversationId, reply);
+
+    cargasState.awaitingName = false;
+    saveState();
     return;
   }
 
-  await sendReplyToChatwoot(accountId, conversationId, 'Para crearte el usuario, pasame tu nombre.');
+  if (isLoadIntent(fullMessage) || isInfoIntent(fullMessage) || isGreetingOnly(fullMessage)) {
+    cargasState.awaitingName = true;
+    saveState();
+    await sendReplyToChatwoot(accountId, conversationId, 'Para crearte el usuario, pasame tu nombre.');
+    return;
+  }
+
+  cargasState.awaitingName = true;
+  saveState();
+  await sendReplyToChatwoot(accountId, conversationId, 'Para ayudarte con la carga, pasame tu nombre.');
 }
 
 // ================== UTILIDADES ==================
