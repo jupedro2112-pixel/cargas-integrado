@@ -1,0 +1,34 @@
+# render.yaml — Configuración de despliegue en Render
+# Documentación: https://render.com/docs/yaml-spec
+
+services:
+  # Opción A (RECOMENDADA): Static Site
+  # Render sirve directamente los archivos estáticos de /dist.
+  # No necesita un servidor Node en producción.
+  - type: web
+    name: cargas-integrado
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Sin variables de entorno obligatorias para el frontend base.
+      # Agregá aquí las VITE_* que necesites:
+      # - key: VITE_API_URL
+      #   value: https://tu-api.onrender.com
+
+  # Opción B: Web Service (si preferís `npm start` / vite preview)
+  # Descomentá el bloque de abajo y comentá el de arriba si querés
+  # desplegar como Web Service en vez de Static Site.
+  #
+  # - type: web
+  #   name: cargas-integrado
+  #   runtime: node
+  #   buildCommand: npm ci && npm run build
+  #   startCommand: npm start
+  #   envVars:
+  #     - key: PORT
+  #       generateValue: false
