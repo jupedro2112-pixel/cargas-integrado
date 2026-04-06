@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Admin - Notificaciones</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0015 0%, #1a0033 50%, #0a0015 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { text-align: center; color: #d4af37; margin-bottom: 10px; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-box {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid #d4af37;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-box h3 { color: #888; font-size: 14px; margin-bottom: 10px; }
+        .stat-box .number { font-size: 2em; font-weight: bold; color: #d4af37; }
+        .stat-box.success .number { color: #00ff88; }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid #d4af37;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        .card h2 { color: #d4af37; margin-bottom: 20px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #d4af37; font-weight: 600; }
+        input, textarea {
+            width: 100%; padding: 12px 15px;
+            border: 2px solid rgba(212,175,55,0.3);
+            border-radius: 10px;
+            background: rgba(0,0,0,0.3);
+            color: #fff; font-size: 16px;
+        }
+        textarea { min-height: 100px; resize: vertical; }
+        .btn {
+            padding: 15px 30px; border: none; border-radius: 25px;
+            font-size: 16px; font-weight: bold; cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #00cc6a 0%, #00ff88 100%);
+            color: #000;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,255,136,0.4); }
+        .btn-secondary {
+            background: linear-gradient(135deg, #9d4edd 0%, #6603a8 100%);
+            color: #fff;
+        }
+        .result {
+            margin-top: 20px; padding: 20px; border-radius: 10px;
+            display: none;
+        }
+        .result.success { background: rgba(0,255,136,0.1); border: 1px solid #00ff88; color: #00ff88; }
+        .result.error { background: rgba(255,68,68,0.1); border: 1px solid #ff4444; color: #ff4444; }
+        .loading {
+            display: none; text-align: center; padding: 30px;
+        }
+        .loading.active { display: block; }
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: #d4af37;
+            border-radius: 50%; width: 50px; height: 50px;
+            animation: spin 1s linear infinite; margin: 0 auto 15px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .quick-btns { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+        .quick-btns button {
+            padding: 8px 15px; background: rgba(212,175,55,0.2);
+            border: 1px solid #d4af37; border-radius: 20px;
+            color: #d4af37; cursor: pointer; font-size: 12px;
+        }
+        .quick-btns button:hover { background: #d4af37; color: #000; }
+        .info-box {
+            background: rgba(0,255,136,0.1);
+            border: 1px solid #00ff88;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .info-box h3 { color: #00ff88; margin-bottom: 10px; }
+        .info-box p { color: #ccc; font-size: 14px; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📢 Panel de Notificaciones</h1>
+        <p class="subtitle">Envía notificaciones a todos los usuarios con la app</p>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <h3>👥 Total Usuarios</h3>
+                <div class="number" id="totalUsers">-</div>
+            </div>
+            <div class="stat-box success">
+                <h3>📱 Con App</h3>
+                <div class="number" id="usersWithToken">-</div>
+            </div>
+            <div class="stat-box">
+                <h3>📊 Porcentaje</h3>
+                <div class="number" id="percentage">-</div>
+            </div>
+        </div>
+        
+        <div class="info-box">
+            <h3>ℹ️ ¿Cómo funciona?</h3>
+            <p>
+                1. Los usuarios instalan la app en su celular (Chrome Android)<br>
+                2. Al hacer login, su token se guarda <strong>automáticamente</strong> en MongoDB<br>
+                3. Escribe tu mensaje aquí y se enviará a <strong>todos</strong> los que tengan la app
+            </p>
+        </div>
+        
+        <div class="card">
+            <h2>📤 Enviar Notificación Masiva</h2>
+            
+            <div class="form-group">
+                <label>Título:</label>
+                <input type="text" id="title" placeholder="¡Novedad importante!">
+                <div class="quick-btns">
+                    <button onclick="setTitle('🎁 ¡Bonus especial!')">🎁 Bonus</button>
+                    <button onclick="setTitle('📢 Anuncio')">📢 Anuncio</button>
+                    <button onclick="setTitle('🎉 ¡Promoción!')">🎉 Promoción</button>
+                    <button onclick="setTitle('⚠️ Mantenimiento')">⚠️ Mantenimiento</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Mensaje:</label>
+                <textarea id="body" placeholder="Escribe tu mensaje..."></textarea>
+                <div class="quick-btns">
+                    <button onclick="setBody('¡Tenemos una sorpresa para ti! Entra ya.')">Sorpresa</button>
+                    <button onclick="setBody('Mantenimiento programado hoy a las 2 AM.')">Mantenimiento</button>
+                    <button onclick="setBody('¡Nueva función disponible! Actualiza la app.')">Nueva función</button>
+                </div>
+            </div>
+            
+            <button class="btn btn-primary" onclick="sendToAll()">
+                📤 Enviar a Todos
+            </button>
+            <button class="btn btn-secondary" onclick="loadStats()">
+                🔄 Actualizar Estadísticas
+            </button>
+            
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Enviando notificaciones...</p>
+            </div>
+            
+            <div id="result" class="result"></div>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = '';
+        
+        function setTitle(t) { document.getElementById('title').value = t; }
+        function setBody(b) { document.getElementById('body').value = b; }
+        
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_URL}/api/notifications/stats`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    document.getElementById('totalUsers').textContent = data.stats.totalUsers;
+                    document.getElementById('usersWithToken').textContent = data.stats.usersWithToken;
+                    document.getElementById('percentage').textContent = data.stats.percentage + '%';
+                }
+            } catch (e) {
+                console.error('Error cargando stats:', e);
+            }
+        }
+        
+        async function sendToAll() {
+            const title = document.getElementById('title').value.trim();
+            const body = document.getElementById('body').value.trim();
+            
+            if (!title || !body) {
+                showResult('❌ Título y mensaje requeridos', true);
+                return;
+            }
+            
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('result').style.display = 'none';
+            
+            try {
+                const res = await fetch(`${API_URL}/api/notifications/send-all`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, body })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    showResult(`
+                        ✅ <strong>¡Notificaciones enviadas!</strong><br><br>
+                        📱 Total usuarios: <strong>${data.totalUsers}</strong><br>
+                        ✅ Exitosas: <strong>${data.successCount}</strong><br>
+                        ❌ Fallidas: <strong>${data.failureCount}</strong>
+                    `, false);
+                } else {
+                    showResult('❌ Error: ' + data.error, true);
+                }
+            } catch (e) {
+                showResult('❌ Error de conexión: ' + e.message, true);
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+            }
+        }
+        
+        function showResult(msg, isError) {
+            const r = document.getElementById('result');
+            r.innerHTML = msg;
+            r.className = 'result ' + (isError ? 'error' : 'success');
+            r.style.display = 'block';
+        }
+        
+        // Cargar stats al iniciar
+        loadStats();
+        setInterval(loadStats, 30000); // Actualizar cada 30 segundos
+    </script>
+</body>
+</html>
